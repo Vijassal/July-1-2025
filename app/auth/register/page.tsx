@@ -84,6 +84,9 @@ export default function RegisterPage() {
         return
       }
 
+      // Account initialization is handled automatically by database trigger
+      // No need for manual initialization here
+
       toast.success("Account created successfully!")
       router.push("/auth/login?registered=true")
     } catch (err) {

@@ -228,27 +228,28 @@ export default function InvitePage() {
     async function fetchAccountInstance() {
       try {
         const {
-          data: { session },
-        } = await supabase.auth.getSession()
-        if (!session?.user?.email) {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (!user?.id) {
           setAccountInstanceId(null)
           setLoading(false)
           return
         }
 
-        const { data: accounts, error } = await supabase
+        const { data: account, error } = await supabase
           .from("account_instances")
           .select("id, name")
-          .eq("name", session.user.email)
+          .eq("owner_user_id", user.id)
+          .single()
 
-        if (error || !accounts || accounts.length === 0) {
+        if (error || !account) {
           console.error("Error fetching account instance:", error)
           setAccountInstanceId(null)
           setLoading(false)
           return
         }
 
-        setAccountInstanceId(accounts[0].id)
+        setAccountInstanceId(account.id)
       } catch (error) {
         console.error("Error in fetchAccountInstance:", error)
         setAccountInstanceId(null)

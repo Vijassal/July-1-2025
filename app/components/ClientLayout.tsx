@@ -10,6 +10,7 @@ import type { Session } from "@supabase/supabase-js"
 import Sidebar from "./Sidebar"
 import ProfessionalSidebar from "./ProfessionalSidebar"
 import UserBar from "./UserBar"
+import { useAccount } from "@/lib/account-context"
 
 interface ClientLayoutProps {
   children: React.ReactNode
@@ -157,6 +158,9 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
   const [error, setError] = useState<string | null>(null)
   const [initialized, setInitialized] = useState(false)
   const pathname = usePathname()
+  const { isLoading } = useAccount()
+
+  console.log("[ClientLayout] render", { loading, isLoading, session, pathname })
 
   // Check if current route is a professional route
   const isProfessionalRoute = pathname?.startsWith("/professional")
@@ -234,17 +238,26 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
   const isAuthPage = pathname?.startsWith("/auth/")
 
   if (error) {
+    console.log("[ClientLayout] Showing ErrorScreen", { error })
     return <ErrorScreen error={error} onRetry={() => window.location.reload()} />
   }
 
   if (loading) {
+    console.log("[ClientLayout] Showing LoadingScreen (local loading)")
+    return <LoadingScreen />
+  }
+
+  if (isLoading) {
+    console.log("[ClientLayout] Showing LoadingScreen (account context loading)")
     return <LoadingScreen />
   }
 
   if (isAuthPage || !session) {
+    console.log("[ClientLayout] Showing UnauthenticatedLayout")
     return <UnauthenticatedLayout>{children}</UnauthenticatedLayout>
   }
 
+  console.log("[ClientLayout] Showing AuthenticatedLayout")
   return (
     <AuthenticatedLayout sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} isProfessional={isProfessionalRoute}>
       {children}

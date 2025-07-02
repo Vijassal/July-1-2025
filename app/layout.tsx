@@ -4,6 +4,7 @@ import { Inter } from "next/font/google"
 import "./globals.css"
 import ClientLayout from "./components/ClientLayout"
 import { Toaster } from "sonner"
+import { AccountProvider } from "@/lib/account-context"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -54,7 +55,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <body className={`${inter.className} antialiased`}>
-        <ClientLayout>{children}</ClientLayout>
+        <AccountProvider>
+          <ClientLayout>{children}</ClientLayout>
+        </AccountProvider>
         <Toaster position="top-right" expand={false} richColors closeButton />
       </body>
     </html>

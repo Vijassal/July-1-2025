@@ -130,12 +130,16 @@ export default function RSVPPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      if (!user?.email) return
+      if (!user?.id) return
 
-      const { data: accounts } = await supabase.from("account_instances").select("id").eq("name", user.email)
+      const { data: account } = await supabase
+        .from("account_instances")
+        .select("id")
+        .eq("owner_user_id", user.id)
+        .single()
 
-      if (accounts && accounts.length > 0) {
-        setAccountInstanceId(accounts[0].id)
+      if (account) {
+        setAccountInstanceId(account.id)
       }
     } catch (error) {
       console.error("Error fetching account instance:", error)

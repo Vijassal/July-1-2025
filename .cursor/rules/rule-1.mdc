@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+OK. Make sure as we go forward for errors, we make sure that we're building according to the practice and architecture you provided. If we're going to have solutions to errors, ensure that the solution is consistent with our solution. If there are problems with fields, make sure you we understand the use case of the fields before solutioning.

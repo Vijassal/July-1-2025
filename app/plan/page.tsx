@@ -978,7 +978,7 @@ export default function PlanPage() {
         const { data: accountInstance, error: accountError } = await supabase
           .from("account_instances")
           .select("id")
-          .eq("owner_id", user.id)
+          .eq("owner_user_id", user.id)
           .single()
 
         if (accountError || !accountInstance) {

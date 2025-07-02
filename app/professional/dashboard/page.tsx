@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -41,32 +42,74 @@ interface ClientAccount {
 
 export default function ProfessionalDashboard() {
   const [loading, setLoading] = useState(false)
-  const [accountRequests, setAccountRequests] = useState<AccountRequest[]>([
-    {
-      id: "1",
-      client_name: "Sarah Wilson",
-      client_email: "sarah.wilson@email.com",
-      message: "Looking for help with my wedding planning",
-      status: "pending",
-      created_at: "2024-06-29T10:00:00Z",
-    },
-  ])
-  const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>([
-    {
-      id: "1",
-      name: "Emily Johnson",
-      email: "emily.johnson@email.com",
-      status: "active",
-      last_activity: "2024-06-28T15:30:00Z",
-    },
-    {
-      id: "2",
-      name: "Michael Chen",
-      email: "michael.chen@email.com",
-      status: "active",
-      last_activity: "2024-06-27T09:15:00Z",
-    },
-  ])
+  const [accountRequests, setAccountRequests] = useState<AccountRequest[]>([])
+  const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>([])
+
+  // Fetch real data on component mount
+  useEffect(() => {
+    fetchProfessionalData()
+  }, [])
+
+  const fetchProfessionalData = async () => {
+    try {
+      setLoading(true)
+      
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      
+      if (!user?.id) {
+        console.error("No authenticated user found")
+        return
+      }
+
+      // Fetch account creation requests
+      const { data: requests, error: requestsError } = await supabase
+        .from("account_creation_requests")
+        .select("*")
+        .eq("professional_id", user.id)
+        .order("created_at", { ascending: false })
+
+      if (requestsError) {
+        console.error("Error fetching account requests:", requestsError)
+      } else {
+        setAccountRequests(requests || [])
+      }
+
+      // Fetch professional access to client accounts
+      const { data: access, error: accessError } = await supabase
+        .from("professional_account_access")
+        .select(`
+          *,
+          account_instances (
+            id,
+            name,
+            owner_user_id
+          )
+        `)
+        .eq("professional_id", user.id)
+        .eq("is_active", true)
+
+      if (accessError) {
+        console.error("Error fetching professional access:", accessError)
+      } else {
+        // Transform the data to match ClientAccount interface
+        const accounts = (access || []).map(acc => ({
+          id: acc.account_instance_id,
+          name: acc.account_instances?.name || "Unknown Account",
+          email: acc.account_instances?.name || "Unknown Email", // Using name as email for now
+          status: "active" as const,
+          last_activity: acc.granted_at
+        }))
+        setClientAccounts(accounts)
+      }
+    } catch (error) {
+      console.error("Error fetching professional data:", error)
+      toast.error("Failed to load professional data")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Form state for creating account requests
   const [newRequest, setNewRequest] = useState({
@@ -84,14 +127,33 @@ export default function ProfessionalDashboard() {
     try {
       setLoading(true)
 
-      // In a real app, this would create a request in the database
-      const request: AccountRequest = {
-        id: Date.now().toString(),
-        client_name: newRequest.client_name,
-        client_email: newRequest.client_email,
-        message: newRequest.message,
-        status: "pending",
-        created_at: new Date().toISOString(),
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user?.id) {
+        toast.error("Authentication required")
+        return
+      }
+
+      // Create account creation request in database
+      const { data: request, error } = await supabase
+        .from("account_creation_requests")
+        .insert({
+          professional_id: user.id,
+          client_email: newRequest.client_email,
+          client_name: newRequest.client_name,
+          account_name: `${newRequest.client_name}'s Event`,
+          message: newRequest.message,
+          status: "pending"
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error("Error creating account request:", error)
+        toast.error("Failed to send account request")
+        return
       }
 
       setAccountRequests([request, ...accountRequests])
@@ -109,7 +171,8 @@ export default function ProfessionalDashboard() {
     // In a real app, this would switch context to the client's account
     toast.success(`Accessing ${account.name}'s account...`)
     // Redirect to the client's dashboard with professional context
-    // window.location.href = `/dashboard?professional_access=${account.id}`
+    // For now, we'll redirect to the main dashboard with account context
+    window.location.href = `/dashboard?account_id=${account.id}&professional_access=true`
   }
 
   const getStatusIcon = (status: string) => {

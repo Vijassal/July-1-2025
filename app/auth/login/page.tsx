@@ -85,6 +85,8 @@ export default function LoginPage() {
         password: data.password,
       })
 
+      console.log('[Login] signInWithPassword result:', { authData, signInError });
+
       if (signInError) {
         setError(signInError.message)
         toast.error(signInError.message)
@@ -94,6 +96,7 @@ export default function LoginPage() {
       if (authData.user) {
         // Check if user is registered for the selected type
         const registeredTypes = await getUserRegisteredTypes(authData.user.id)
+        console.log('[Login] Registered types:', registeredTypes)
 
         if (!registeredTypes.includes(activeTab)) {
           setError(`You are not registered as a ${activeTab} user. Please register for this user type first.`)
@@ -113,21 +116,25 @@ export default function LoginPage() {
           console.error("Error updating user metadata:", updateError)
         }
 
+        // Log the session after login
+        const { data: sessionData } = await supabase.auth.getSession();
+        console.log('[Login] Session after login:', sessionData);
+
         toast.success("Welcome back!")
 
         // Redirect based on user type
         switch (activeTab) {
           case "regular":
-            router.push("/dashboard")
+            window.location.href = "/dashboard"
             break
           case "professional":
-            router.push("/professional/dashboard")
+            window.location.href = "/professional/dashboard"
             break
           case "vendor":
-            router.push("/vendor/dashboard")
+            window.location.href = "/vendor/dashboard"
             break
           default:
-            router.push("/dashboard")
+            window.location.href = "/dashboard"
         }
         return
       }
