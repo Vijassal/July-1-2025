@@ -15,6 +15,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, User, Users, Settings, Mail, AlertTriangle, CheckCircle, XCircle } from "lucide-react"
 import { toast } from "sonner"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { useAccount } from "@/lib/account-context"
+import { SubscriptionService } from "@/lib/subscription-service"
 
 interface UserProfile {
   id: string
@@ -38,6 +41,34 @@ interface AppConfiguration {
   floorplan_enabled: boolean
 }
 
+const AVAILABLE_CURRENCIES = [
+  { value: "USD", label: "USD" },
+  { value: "EUR", label: "EUR" },
+  { value: "JPY", label: "JPY" },
+  { value: "GBP", label: "GBP" },
+  { value: "AUD", label: "AUD" },
+  { value: "CAD", label: "CAD" },
+  { value: "CHF", label: "CHF" },
+  { value: "CNY", label: "CNY" },
+  { value: "HKD", label: "HKD" },
+  { value: "NZD", label: "NZD" },
+  { value: "SEK", label: "SEK" },
+  { value: "KRW", label: "KRW" },
+  { value: "SGD", label: "SGD" },
+  { value: "NOK", label: "NOK" },
+  { value: "MXN", label: "MXN" },
+  { value: "INR", label: "INR" },
+  { value: "RUB", label: "RUB" },
+  { value: "ZAR", label: "ZAR" },
+  { value: "TRY", label: "TRY" },
+  { value: "BRL", label: "BRL" },
+  { value: "TWD", label: "TWD" },
+  { value: "DKK", label: "DKK" },
+  { value: "PLN", label: "PLN" },
+  { value: "THB", label: "THB" },
+  { value: "IDR", label: "IDR" },
+]
+
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -52,6 +83,12 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviting, setInviting] = useState(false)
   const [configTableMissing, setConfigTableMissing] = useState(false)
+  const { currentAccount, refreshAccountData } = useAccount();
+  const [activeTab, setActiveTab] = useState("settings");
+  const [subLoading, setSubLoading] = useState(false);
+  const [subscription, setSubscription] = useState<any>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const [currency, setCurrency] = useState<string | undefined>(undefined);
 
   const supabase = createClientSupabase()
 
@@ -170,6 +207,31 @@ export default function SettingsPage() {
     initializeData()
   }, [supabase])
 
+  useEffect(() => {
+    if (currentAccount) {
+      setCurrency(currentAccount.currency || "USD")
+      setLoading(false)
+    }
+  }, [currentAccount])
+
+  // Fetch subscription info for Subscription tab
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      if (!user?.id) return;
+      setSubLoading(true);
+      setSubscriptionError(null);
+      try {
+        const result = await SubscriptionService.getUserSubscriptionWithPlan(user.id);
+        setSubscription(result);
+      } catch (err) {
+        setSubscriptionError("Failed to load subscription info");
+      } finally {
+        setSubLoading(false);
+      }
+    };
+    if (activeTab === "subscription") fetchSubscription();
+  }, [activeTab, user]);
+
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!profile) return
@@ -240,6 +302,23 @@ export default function SettingsPage() {
     }
   }
 
+  // Update currency on account instance
+  const handleCurrencyChange = async (value: string) => {
+    setCurrency(value)
+    setSaving(true)
+    if (!currentAccount) {
+      setSaving(false)
+      return
+    }
+    await fetch(`/api/account-instances/update-currency`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: currentAccount.id, currency: value })
+    })
+    await refreshAccountData()
+    setSaving(false)
+  }
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "active":
@@ -278,245 +357,313 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Banner Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8 text-white shadow-2xl mb-0">
-        <div className="absolute inset-0 bg-gradient-to-br from-rose-500/20 via-transparent to-amber-500/20"></div>
-        <div className="relative">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-rose-500 rounded-xl flex items-center justify-center shadow-lg">
-              <Settings className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-light">Settings</h1>
-              <p className="text-slate-200 font-light">Manage your account, team, and application preferences</p>
-            </div>
-          </div>
-        </div>
+    <div className="space-y-8">
+      {/* Top Navigation Bar (1:1 Budget style) */}
+      <div className="flex items-center w-full mt-8 mb-8">
+        <nav className="flex bg-white/90 backdrop-blur-sm border border-slate-200/60 rounded-xl shadow-sm overflow-x-auto px-2 py-1 gap-2">
+          <button
+            className={`px-5 py-2 rounded-lg font-medium transition-colors text-sm ${activeTab === "settings" ? "bg-gradient-to-br from-orange-400 to-amber-400 text-white shadow" : "text-slate-600 hover:bg-slate-100"}`}
+            onClick={() => setActiveTab("settings")}
+            type="button"
+          >
+            Settings
+          </button>
+          <button
+            className={`px-5 py-2 rounded-lg font-medium transition-colors text-sm ${activeTab === "subscription" ? "bg-gradient-to-br from-orange-400 to-amber-400 text-white shadow" : "text-slate-600 hover:bg-slate-100"}`}
+            onClick={() => setActiveTab("subscription")}
+            type="button"
+          >
+            Subscription
+          </button>
+        </nav>
       </div>
 
-      {/* Profile Section */}
-      <Card className="border-slate-200/50 shadow-lg bg-white/90 backdrop-blur-sm">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-2">
-            <User className="w-5 h-5" />
-            Profile Information
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleProfileUpdate} className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  value={profile?.name || ""}
-                  onChange={(e) => setProfile((prev) => (prev ? { ...prev, name: e.target.value } : null))}
-                  placeholder="Enter your full name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input id="email" value={profile?.email || ""} disabled className="bg-gray-50" />
+      {/* Tab Content */}
+      {activeTab === "settings" && (
+        <div className="space-y-8">
+          {/* Banner Header */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8 text-white shadow-2xl mb-0">
+            <div className="absolute inset-0 bg-gradient-to-br from-rose-500/20 via-transparent to-amber-500/20"></div>
+            <div className="relative">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-rose-500 rounded-xl flex items-center justify-center shadow-lg">
+                  <Settings className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-light">Settings</h1>
+                  <p className="text-slate-200 font-light">Manage your account, team, and application preferences</p>
+                </div>
               </div>
             </div>
-            <div className="flex justify-end">
-              <Button type="submit" disabled={saving}>
-                {saving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Profile"
-                )}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Team Management Section */}
-      <Card className="border-slate-200/50 shadow-lg bg-white/90 backdrop-blur-sm">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-2">
-            <Users className="w-5 h-5" />
-            Team Management
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Invite Form */}
-          <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-            <h3 className="font-medium text-slate-800 mb-3">Invite Team Member</h3>
-            <form onSubmit={handleInviteUser} className="flex gap-3">
-              <div className="flex-1">
-                <Input
-                  type="email"
-                  placeholder="Enter email address"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <Button type="submit" disabled={inviting}>
-                {inviting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Inviting...
-                  </>
-                ) : (
-                  <>
-                    <Mail className="mr-2 h-4 w-4" />
-                    Invite
-                  </>
-                )}
-              </Button>
-            </form>
           </div>
 
-          {/* Team Members List */}
-          <div className="space-y-3">
-            <h3 className="font-medium text-slate-800">Current Team Members</h3>
-            <div className="space-y-2">
-              {teamMembers.map((member) => (
-                <div
-                  key={member.id}
-                  className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                      {member.name ? member.name.charAt(0).toUpperCase() : member.email.charAt(0).toUpperCase()}
+          {/* Profile Section */}
+          <Card className="border-slate-200/50 shadow-lg bg-white/90 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-2">
+                <User className="w-5 h-5" />
+                Profile Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleProfileUpdate} className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Full Name</Label>
+                    <Input
+                      id="name"
+                      value={profile?.name || ""}
+                      onChange={(e) => setProfile((prev) => (prev ? { ...prev, name: e.target.value } : null))}
+                      placeholder="Enter your full name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email Address</Label>
+                    <Input id="email" value={profile?.email || ""} disabled className="bg-gray-50" />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={saving}>
+                    {saving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Profile"
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* Team Management Section */}
+          <Card className="border-slate-200/50 shadow-lg bg-white/90 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Team Management
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Invite Form */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <h3 className="font-medium text-slate-800 mb-3">Invite Team Member</h3>
+                <form onSubmit={handleInviteUser} className="flex gap-3">
+                  <div className="flex-1">
+                    <Input
+                      type="email"
+                      placeholder="Enter email address"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button type="submit" disabled={inviting}>
+                    {inviting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Inviting...
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="mr-2 h-4 w-4" />
+                        Invite
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </div>
+
+              {/* Team Members List */}
+              <div className="space-y-3">
+                <h3 className="font-medium text-slate-800">Current Team Members</h3>
+                <div className="space-y-2">
+                  {(teamMembers.length > 0 ? teamMembers : [
+                    { id: "1", email: "john.doe@example.com", name: "John Doe", role: "Admin", status: "active", invited_at: new Date().toISOString() },
+                    { id: "2", email: "jane.smith@example.com", name: "Jane Smith", role: "Editor", status: "pending", invited_at: new Date().toISOString() },
+                  ]).map((member) => (
+                    <div
+                      key={member.id}
+                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                          {member.name ? member.name.charAt(0).toUpperCase() : member.email.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-800">{member.name || member.email}</p>
+                          {member.name && <p className="text-sm text-slate-600">{member.email}</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge className={`${getStatusColor(member.status)} text-xs`}>
+                          <div className="flex items-center gap-1">
+                            {getStatusIcon(member.status)}
+                            {member.status}
+                          </div>
+                        </Badge>
+                        <span className="text-sm text-slate-600">{member.role}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Configuration Section */}
+          <Card className="border-slate-200/50 shadow-lg bg-white/90 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Application Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {configTableMissing && (
+                <Alert className="border-yellow-200 bg-yellow-50">
+                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                  <AlertDescription className="text-yellow-800">
+                    Configuration table not found. Please run the database migration to enable configuration management.
+                  </AlertDescription>
+                </Alert>
+              )}
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* Currency Selection */}
+                <div className="space-y-3">
+                  <Label className="text-base font-medium">Currency</Label>
+                  <Select
+                    value={currency}
+                    onValueChange={handleCurrencyChange}
+                    disabled={saving || loading || !currentAccount}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AVAILABLE_CURRENCIES.map((currency) => (
+                        <SelectItem key={currency.value} value={currency.value}>
+                          {currency.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {saving && <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground"><Loader2 className="animate-spin h-4 w-4" /> Saving...</div>}
+                </div>
+
+                {/* Feature Toggles */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-base font-medium">Feature Settings</Label>
+                    <span className="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded-full ml-2">Coming Soon</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <div>
+                        <p className="font-medium text-slate-800">Religion Page</p>
+                        <p className="text-sm text-slate-600">Enable religious ceremony planning features</p>
+                      </div>
+                      <Switch
+                        checked={configuration.religion_enabled}
+                        onCheckedChange={(checked) => setConfiguration((prev) => ({ ...prev, religion_enabled: checked }))}
+                        disabled={configTableMissing}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <div>
+                        <p className="font-medium text-slate-800">Trip Plan Page</p>
+                        <p className="text-sm text-slate-600">Enable trip and itinerary planning tools</p>
+                      </div>
+                      <Switch
+                        checked={configuration.floorplan_enabled}
+                        onCheckedChange={(checked) => setConfiguration((prev) => ({ ...prev, floorplan_enabled: checked }))}
+                        disabled={configTableMissing}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex justify-end">
+                <Button onClick={handleConfigurationSave} disabled={saving || configTableMissing}>
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Configuration"
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      {activeTab === "subscription" && (
+        <div className="space-y-8">
+          {/* Subscription Card (always render) */}
+          <Card className="border-slate-200/50 shadow-lg bg-white/90 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle>Subscription Plan</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {subLoading ? (
+                <div className="flex items-center gap-2 py-8"><Loader2 className="animate-spin h-6 w-6 text-primary" /> Loading subscription...</div>
+              ) : subscriptionError ? (
+                <div className="text-red-600 py-8">{subscriptionError}</div>
+              ) : subscription && subscription.plan ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-lg">{subscription.plan.name}</span>
+                    <Badge className="ml-2 capitalize">{subscription.subscription.status}</Badge>
+                  </div>
+                  <div className="text-slate-700">{subscription.plan.description}</div>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <span className="font-medium">Period:</span><br />
+                      {subscription.subscription.current_period_start ? new Date(subscription.subscription.current_period_start).toLocaleDateString() : "-"} - {subscription.subscription.current_period_end ? new Date(subscription.subscription.current_period_end).toLocaleDateString() : "-"}
                     </div>
                     <div>
-                      <p className="font-medium text-slate-800">{member.name || member.email}</p>
-                      {member.name && <p className="text-sm text-slate-600">{member.email}</p>}
+                      <span className="font-medium">Trial Ends:</span><br />
+                      {subscription.subscription.trial_end ? new Date(subscription.subscription.trial_end).toLocaleDateString() : "-"}
+                    </div>
+                    <div>
+                      <span className="font-medium">Max Events:</span><br />
+                      {subscription.plan.max_events}
+                    </div>
+                    <div>
+                      <span className="font-medium">Max Participants:</span><br />
+                      {subscription.plan.max_participants}
+                    </div>
+                    <div>
+                      <span className="font-medium">Max Professional Accounts:</span><br />
+                      {subscription.plan.max_professional_accounts}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Badge className={`${getStatusColor(member.status)} text-xs`}>
-                      <div className="flex items-center gap-1">
-                        {getStatusIcon(member.status)}
-                        {member.status}
-                      </div>
-                    </Badge>
-                    <span className="text-sm text-slate-600">{member.role}</span>
-                  </div>
+                  {subscription.plan.features && (
+                    <div className="mt-4">
+                      <span className="font-medium">Features:</span>
+                      <ul className="list-disc ml-6 text-slate-700">
+                        {Object.entries(subscription.plan.features).map(([key, value]) => (
+                          <li key={key}><span className="font-semibold">{key}:</span> {String(value)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Configuration Section */}
-      <Card className="border-slate-200/50 shadow-lg bg-white/90 backdrop-blur-sm">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            Application Configuration
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {configTableMissing && (
-            <Alert className="border-yellow-200 bg-yellow-50">
-              <AlertTriangle className="h-4 w-4 text-yellow-600" />
-              <AlertDescription className="text-yellow-800">
-                Configuration table not found. Please run the database migration to enable configuration management.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Currency Selection */}
-            <div className="space-y-3">
-              <Label className="text-base font-medium">Currency</Label>
-              <Select
-                value={configuration.currency}
-                onValueChange={(value) => setConfiguration((prev) => ({ ...prev, currency: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select currency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="USD">USD - US Dollar</SelectItem>
-                  <SelectItem value="EUR">EUR - Euro</SelectItem>
-                  <SelectItem value="JPY">JPY - Japanese Yen</SelectItem>
-                  <SelectItem value="GBP">GBP - British Pound</SelectItem>
-                  <SelectItem value="AUD">AUD - Australian Dollar</SelectItem>
-                  <SelectItem value="CAD">CAD - Canadian Dollar</SelectItem>
-                  <SelectItem value="CHF">CHF - Swiss Franc</SelectItem>
-                  <SelectItem value="CNY">CNY - Chinese Yuan</SelectItem>
-                  <SelectItem value="HKD">HKD - Hong Kong Dollar</SelectItem>
-                  <SelectItem value="NZD">NZD - New Zealand Dollar</SelectItem>
-                  <SelectItem value="SEK">SEK - Swedish Krona</SelectItem>
-                  <SelectItem value="KRW">KRW - South Korean Won</SelectItem>
-                  <SelectItem value="SGD">SGD - Singapore Dollar</SelectItem>
-                  <SelectItem value="NOK">NOK - Norwegian Krone</SelectItem>
-                  <SelectItem value="MXN">MXN - Mexican Peso</SelectItem>
-                  <SelectItem value="INR">INR - Indian Rupee</SelectItem>
-                  <SelectItem value="RUB">RUB - Russian Ruble</SelectItem>
-                  <SelectItem value="ZAR">ZAR - South African Rand</SelectItem>
-                  <SelectItem value="TRY">TRY - Turkish Lira</SelectItem>
-                  <SelectItem value="BRL">BRL - Brazilian Real</SelectItem>
-                  <SelectItem value="TWD">TWD - New Taiwan Dollar</SelectItem>
-                  <SelectItem value="DKK">DKK - Danish Krone</SelectItem>
-                  <SelectItem value="PLN">PLN - Polish Zloty</SelectItem>
-                  <SelectItem value="THB">THB - Thai Baht</SelectItem>
-                  <SelectItem value="IDR">IDR - Indonesian Rupiah</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Feature Toggles */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Label className="text-base font-medium">Feature Settings</Label>
-                <span className="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded-full ml-2">Coming Soon</span>
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <div>
-                    <p className="font-medium text-slate-800">Religion Page</p>
-                    <p className="text-sm text-slate-600">Enable religious ceremony planning features</p>
-                  </div>
-                  <Switch
-                    checked={configuration.religion_enabled}
-                    onCheckedChange={(checked) => setConfiguration((prev) => ({ ...prev, religion_enabled: checked }))}
-                    disabled={configTableMissing}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <div>
-                    <p className="font-medium text-slate-800">Trip Plan Page</p>
-                    <p className="text-sm text-slate-600">Enable trip and itinerary planning tools</p>
-                  </div>
-                  <Switch
-                    checked={configuration.floorplan_enabled}
-                    onCheckedChange={(checked) => setConfiguration((prev) => ({ ...prev, floorplan_enabled: checked }))}
-                    disabled={configTableMissing}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="flex justify-end">
-            <Button onClick={handleConfigurationSave} disabled={saving || configTableMissing}>
-              {saving ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
               ) : (
-                "Save Configuration"
+                <div className="text-slate-600 py-8">No active subscription found.</div>
               )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

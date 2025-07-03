@@ -10,15 +10,21 @@ import { Badge } from "@/components/ui/badge"
 import { Upload, Save, Plus, Edit, Trash2, Ruler, Square, Circle, Minus, Type, RotateCcw } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { getOrCreateAccountInstanceId } from "@/lib/account-utils"
 import CanvasDesigner from "./CanvasDesigner"
 
 interface Blueprint {
   id: string
   name: string
-  description: string
-  width_ft: number
-  height_ft: number
-  measurements_unit: string
+  event_id: string | null
+  account_instance_id: string
+  blueprint_data: any
+  background_image: string | null
+  dimensions: {
+    unit: string
+    width: number
+    height: number
+  }
   created_at: string
   updated_at: string
 }
@@ -40,17 +46,21 @@ export default function BlueprintTab({ userId = "user-1", eventId = "event-1", e
   const demoBlueprint: Blueprint = {
     id: "demo-1",
     name: "Demo Reception Hall",
-    description: "A sample blueprint to test the canvas designer",
-    width_ft: 30,
-    height_ft: 20,
-    measurements_unit: "ft",
+    event_id: eventId,
+    account_instance_id: "demo-account",
+    blueprint_data: {},
+    background_image: null,
+    dimensions: {
+      unit: "ft",
+      width: 30,
+      height: 20
+    },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   }
 
   // Form states
   const [blueprintName, setBlueprintName] = useState("")
-  const [blueprintDescription, setBlueprintDescription] = useState("")
   const [roomWidth, setRoomWidth] = useState<number>(20)
   const [roomHeight, setRoomHeight] = useState<number>(15)
   const [measurementUnit, setMeasurementUnit] = useState<"ft" | "in">("ft")
@@ -61,11 +71,21 @@ export default function BlueprintTab({ userId = "user-1", eventId = "event-1", e
 
   const fetchBlueprints = async () => {
     try {
-      // Try to fetch from blueprints table, create it if it doesn't exist
+      // Get account instance ID
+      const accountInstanceId = await getOrCreateAccountInstanceId()
+      if (!accountInstanceId) {
+        console.error("No account instance ID available")
+        setBlueprints([demoBlueprint])
+        setSelectedBlueprint(demoBlueprint)
+        setLoading(false)
+        return
+      }
+
+      // Try to fetch from blueprints table
       const { data, error } = await supabase
         .from("blueprints")
         .select("*")
-        .eq("user_id", userId)
+        .eq("account_instance_id", accountInstanceId)
         .eq("event_id", eventId)
         .order("updated_at", { ascending: false })
 
@@ -82,6 +102,7 @@ export default function BlueprintTab({ userId = "user-1", eventId = "event-1", e
           setSelectedBlueprint(demoBlueprint)
         } else {
           setBlueprints(fetchedBlueprints)
+          setSelectedBlueprint(fetchedBlueprints[0])
         }
       }
     } catch (error) {
@@ -107,16 +128,24 @@ export default function BlueprintTab({ userId = "user-1", eventId = "event-1", e
 
     setSaving(true)
     try {
+      const accountInstanceId = await getOrCreateAccountInstanceId()
+      if (!accountInstanceId) {
+        toast.error("No account instance ID available")
+        return
+      }
+
       const { data, error } = await supabase
         .from("blueprints")
         .insert({
-          user_id: userId,
+          account_instance_id: accountInstanceId,
           event_id: eventId,
           name: blueprintName,
-          description: blueprintDescription,
-          measurements_unit: measurementUnit,
-          width_ft: roomWidth,
-          height_ft: roomHeight,
+          blueprint_data: {},
+          dimensions: {
+            unit: measurementUnit,
+            width: roomWidth,
+            height: roomHeight
+          }
         })
         .select()
         .single()
@@ -127,11 +156,10 @@ export default function BlueprintTab({ userId = "user-1", eventId = "event-1", e
       setSelectedBlueprint(data)
       setIsCreating(false)
       setBlueprintName("")
-      setBlueprintDescription("")
       toast.success("Blueprint created successfully")
     } catch (error) {
       console.error("Error creating blueprint:", error)
-      toast.error("Failed to create blueprint - table may not exist yet")
+      toast.error("Failed to create blueprint")
     } finally {
       setSaving(false)
     }
@@ -223,7 +251,7 @@ export default function BlueprintTab({ userId = "user-1", eventId = "event-1", e
                       <div className="flex-1 min-w-0">
                         <h4 className="font-medium text-sm truncate">{blueprint.name}</h4>
                         <p className="text-xs text-muted-foreground">
-                          {blueprint.width_ft} × {blueprint.height_ft} {blueprint.measurements_unit}
+                          {blueprint.dimensions.width} × {blueprint.dimensions.height} {blueprint.dimensions.unit}
                         </p>
                       </div>
                       <Button
@@ -258,17 +286,6 @@ export default function BlueprintTab({ userId = "user-1", eventId = "event-1", e
                     value={blueprintName}
                     onChange={(e) => setBlueprintName(e.target.value)}
                     placeholder="e.g., Main Reception Hall"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="blueprint-description">Description</Label>
-                  <Textarea
-                    id="blueprint-description"
-                    value={blueprintDescription}
-                    onChange={(e) => setBlueprintDescription(e.target.value)}
-                    placeholder="Optional description..."
-                    rows={2}
                   />
                 </div>
 
@@ -340,15 +357,20 @@ export default function BlueprintTab({ userId = "user-1", eventId = "event-1", e
                       {selectedBlueprint.name}
                     </CardTitle>
                     <CardDescription>
-                      {selectedBlueprint.width_ft} × {selectedBlueprint.height_ft} {selectedBlueprint.measurements_unit}
-                      {selectedBlueprint.description && ` • ${selectedBlueprint.description}`}
+                      {selectedBlueprint.dimensions.width} × {selectedBlueprint.dimensions.height} {selectedBlueprint.dimensions.unit}
                     </CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0 h-full">
                 <CanvasDesigner
-                  blueprint={selectedBlueprint}
+                  blueprint={{
+                    id: selectedBlueprint.id,
+                    name: selectedBlueprint.name,
+                    width_ft: selectedBlueprint.dimensions.width,
+                    height_ft: selectedBlueprint.dimensions.height,
+                    measurements_unit: selectedBlueprint.dimensions.unit
+                  }}
                   userId={userId}
                   eventId={eventId}
                 />

@@ -679,6 +679,261 @@ export interface Database {
           updated_at?: string
         }
       }
+      budgets: {
+        Row: {
+          id: string
+          purchase: string
+          vendor_id: string | null
+          date: string
+          event_id: string | null
+          category: string
+          cost: number
+          tags: string[] | null
+          payment_for: string | null
+          payment_by: string | null
+          conversion_rate: number | null
+          converted_amount: number | null
+          currency: string | null
+          account_instance_id: string
+          created_at: string
+          updated_at: string
+          category_id: string | null
+          actual_cost: number | null
+          actual_currency: string | null
+          notes: string | null
+        }
+        Insert: {
+          id?: string
+          purchase: string
+          vendor_id?: string | null
+          date: string
+          event_id?: string | null
+          category: string
+          cost: number
+          tags?: string[] | null
+          payment_for?: string | null
+          payment_by?: string | null
+          conversion_rate?: number | null
+          converted_amount?: number | null
+          currency?: string | null
+          account_instance_id: string
+          created_at?: string
+          updated_at?: string
+          category_id?: string | null
+          actual_cost?: number | null
+          actual_currency?: string | null
+          notes?: string | null
+        }
+        Update: {
+          id?: string
+          purchase?: string
+          vendor_id?: string | null
+          date?: string
+          event_id?: string | null
+          category?: string
+          cost?: number
+          tags?: string[] | null
+          payment_for?: string | null
+          payment_by?: string | null
+          conversion_rate?: number | null
+          converted_amount?: number | null
+          currency?: string | null
+          account_instance_id?: string
+          created_at?: string
+          updated_at?: string
+          category_id?: string | null
+          actual_cost?: number | null
+          actual_currency?: string | null
+          notes?: string | null
+        }
+      }
+      logged_payments: {
+        Row: {
+          id: string
+          budget_id: string
+          purchase: string
+          payment_amount: number
+          payment_by: string
+          payment_for: string
+          payment_date: string
+          item: string
+          account_instance_id: string
+          created_at: string
+          updated_at: string
+          budget_item_id: string | null
+          payment_method: string | null
+          payment_status: string | null
+          payment_reference: string | null
+          notes: string | null
+          receipt_url: string | null
+          currency: string | null
+        }
+        Insert: {
+          id?: string
+          budget_id: string
+          purchase: string
+          payment_amount: number
+          payment_by: string
+          payment_for: string
+          payment_date: string
+          item: string
+          account_instance_id: string
+          created_at?: string
+          updated_at?: string
+          budget_item_id?: string | null
+          payment_method?: string | null
+          payment_status?: string | null
+          payment_reference?: string | null
+          notes?: string | null
+          receipt_url?: string | null
+          currency?: string | null
+        }
+        Update: {
+          id?: string
+          budget_id?: string
+          purchase?: string
+          payment_amount?: number
+          payment_by?: string
+          payment_for?: string
+          payment_date?: string
+          item?: string
+          account_instance_id?: string
+          created_at?: string
+          updated_at?: string
+          budget_item_id?: string | null
+          payment_method?: string | null
+          payment_status?: string | null
+          payment_reference?: string | null
+          notes?: string | null
+          receipt_url?: string | null
+          currency?: string | null
+        }
+      }
+      logged_item_costs: {
+        Row: {
+          id: string
+          logged_payment_id: string
+          item: string
+          per_cost: number
+          subtotal: number
+          total: number
+          account_instance_id: string
+          created_at: string
+          updated_at: string
+          quantity: number | null
+          notes: string | null
+        }
+        Insert: {
+          id?: string
+          logged_payment_id: string
+          item: string
+          per_cost: number
+          subtotal: number
+          total: number
+          account_instance_id: string
+          created_at?: string
+          updated_at?: string
+          quantity?: number | null
+          notes?: string | null
+        }
+        Update: {
+          id?: string
+          logged_payment_id?: string
+          item?: string
+          per_cost?: number
+          subtotal?: number
+          total?: number
+          account_instance_id?: string
+          created_at?: string
+          updated_at?: string
+          quantity?: number | null
+          notes?: string | null
+        }
+      }
+      exchange_rates: {
+        Row: {
+          id: string
+          from_currency: string
+          to_currency: string
+          rate: number
+          date: string
+          account_instance_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          from_currency: string
+          to_currency: string
+          rate: number
+          date: string
+          account_instance_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          from_currency?: string
+          to_currency?: string
+          rate?: number
+          date?: string
+          account_instance_id?: string
+          created_at?: string
+        }
+      }
+      categories: {
+        Row: {
+          id: string
+          name: string
+          account_instance_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          account_instance_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          account_instance_id?: string
+          created_at?: string
+        }
+      }
+      future_payments: {
+        Row: {
+          id: string
+          budget_item_id: string
+          due_date: string
+          amount: number
+          notes: string | null
+          status: string
+          paid_at: string | null
+          account_instance_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          budget_item_id: string
+          due_date: string
+          amount: number
+          notes?: string | null
+          status?: string
+          paid_at?: string | null
+          account_instance_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          budget_item_id?: string
+          due_date?: string
+          amount?: number
+          notes?: string | null
+          status?: string
+          paid_at?: string | null
+          account_instance_id?: string
+          created_at?: string
+        }
+      }
     }
   }
 }

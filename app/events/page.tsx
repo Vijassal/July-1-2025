@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Plus, Calendar, Clock, MapPin, Users, ChevronDown, ChevronRight, CalendarDays } from "lucide-react"
 import { toast } from "sonner"
 import { useSearchParams } from "next/navigation"
+import { getOrCreateAccountInstanceId } from "@/lib/account-utils"
 
 // Event and Sub-Event Types
 interface EventData {
@@ -113,27 +114,15 @@ export default function EventsPage() {
   useEffect(() => {
     async function fetchAccountInstance() {
       setFetchingAccountInstance(true)
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (!session?.user?.email) {
+      
+      const accountInstanceId = await getOrCreateAccountInstanceId()
+      if (!accountInstanceId) {
+        toast.error("Failed to initialize account. Please try again.")
         setAccountInstanceId(null)
-        setFetchingAccountInstance(false)
-        return
+      } else {
+        setAccountInstanceId(accountInstanceId)
       }
-
-      const { data: accounts, error } = await supabase
-        .from("account_instances")
-        .select("id, name")
-        .eq("name", session.user.email)
-
-      if (error || !accounts || accounts.length === 0) {
-        setAccountInstanceId(null)
-        setFetchingAccountInstance(false)
-        return
-      }
-
-      setAccountInstanceId(accounts[0].id)
+      
       setFetchingAccountInstance(false)
     }
     fetchAccountInstance()

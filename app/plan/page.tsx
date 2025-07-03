@@ -25,18 +25,21 @@ import {
   Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
+import { getOrCreateAccountInstanceId } from "@/lib/account-utils"
 
 const LOCAL_STORAGE_KEY = "planPageSettings"
 
 interface VendorData {
   id: string
-  name: string
+  title: string
+  description: string
   date: string
   start_time: string
   end_time: string
   location: string
-  type: string
-  category: string
+  vendor_name: string
+  vendor_business_name: string
+  status: string
   account_instance_id?: string
 }
 
@@ -153,10 +156,13 @@ function SectionFilter({
   filterSearch,
   showMoreLimit,
   icon: Icon,
+  nameField = "name",
 }: any) {
   const [showMore, setShowMore] = useState(false)
 
-  const filteredItems = items.filter((item: any) => item.name.toLowerCase().includes(filterSearch.toLowerCase()))
+  const filteredItems = items.filter((item: any) => 
+    (item[nameField] || item.name || "").toLowerCase().includes(filterSearch.toLowerCase())
+  )
   const displayItems = showMore ? filteredItems : filteredItems.slice(0, showMoreLimit)
 
   return (
@@ -188,7 +194,9 @@ function SectionFilter({
               />
               <Palette className="w-3 h-3 absolute -top-1 -right-1 text-slate-400 pointer-events-none" />
             </div>
-            <span className="text-sm text-slate-700 flex-1 truncate font-medium">{item.name}</span>
+            <span className="text-sm text-slate-700 flex-1 truncate font-medium">
+              {item[nameField] || item.name || "Untitled"}
+            </span>
           </div>
         ))}
 
@@ -947,7 +955,7 @@ export default function PlanPage() {
     vendors.forEach((v) => {
       allData.push({
         ...v,
-        title: v.name,
+        title: v.title,
         blockType: "vendor",
         color: vendorColors[v.id] || "#10b981",
         id: `vendor-${v.id}`,
@@ -964,25 +972,10 @@ export default function PlanPage() {
       try {
         setLoading(true)
 
-        // Get current user
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser()
-        if (userError || !user) {
-          console.error("User not found")
-          return
-        }
-
-        // Get account instance using the same logic as Events page
-        const { data: accountInstance, error: accountError } = await supabase
-          .from("account_instances")
-          .select("id")
-          .eq("owner_user_id", user.id)
-          .single()
-
-        if (accountError || !accountInstance) {
-          console.error("No account instance found")
+        // Get or create account instance
+        const accountInstanceId = await getOrCreateAccountInstanceId()
+        if (!accountInstanceId) {
+          toast.error("Failed to initialize account. Please try again.")
           return
         }
 
@@ -990,23 +983,39 @@ export default function PlanPage() {
         const { data: eventsData } = await supabase
           .from("events")
           .select("*")
-          .eq("account_instance_id", accountInstance.id)
+          .eq("account_instance_id", accountInstanceId)
 
         // Fetch sub-events using correct schema
         const { data: subEventsData } = await supabase
           .from("sub_events")
           .select("*")
-          .eq("account_instance_id", accountInstance.id)
+          .eq("account_instance_id", accountInstanceId)
 
-        // Fetch vendors (if vendor_schedules table exists)
+        // Fetch vendors (using the correct table name)
         const { data: vendorsData } = await supabase
-          .from("vendor_schedules")
+          .from("vendors")
           .select("*")
-          .eq("account_instance_id", accountInstance.id)
+          .eq("account_instance_id", accountInstanceId)
 
         if (eventsData) setEvents(eventsData)
         if (subEventsData) setSubEventData(subEventsData)
-        if (vendorsData) setVendors(vendorsData)
+        if (vendorsData) {
+          // Transform vendors data to match VendorData interface
+          const transformedVendors = vendorsData.map(vendor => ({
+            id: vendor.id,
+            title: vendor.name || vendor.business_name || "Vendor",
+            description: vendor.description || vendor.event || "",
+            date: vendor.date,
+            start_time: vendor.start_time,
+            end_time: vendor.end_time || "",
+            location: vendor.location || "",
+            vendor_name: vendor.name || "",
+            vendor_business_name: vendor.business_name || vendor.name || "",
+            status: vendor.type || vendor.category || "Scheduled",
+            account_instance_id: vendor.account_instance_id
+          }))
+          setVendors(transformedVendors)
+        }
       } catch (error) {
         console.error("Error fetching data:", error)
         toast.error("Failed to load planning data")
@@ -1285,6 +1294,7 @@ export default function PlanPage() {
                 filterSearch={filterSearch}
                 showMoreLimit={5}
                 icon={Building2}
+                nameField="title"
               />
 
               {/* Enhanced Settings */}

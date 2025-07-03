@@ -433,6 +433,7 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(({
           }}
           isSelected={false}
           zoom={zoom}
+          onSelect={() => {}} // Preview shapes don't need selection
         />
       )}
 

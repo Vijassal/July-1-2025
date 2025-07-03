@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -30,9 +31,14 @@ import {
   Users,
   Check,
   Trash2,
+  Settings,
+  Building2,
+  Search,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { format } from "date-fns"
+import { getOrCreateAccountInstanceId } from "@/lib/account-utils"
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -401,6 +407,13 @@ export default function CalendarPage() {
   const [vendorSchedules, setVendorSchedules] = useState<VendorSchedule[]>([])
   const [loading, setLoading] = useState(true)
   const [accountInstanceId, setAccountInstanceId] = useState<string | null>(null)
+  
+  // Add filtering state
+  const [showFilters, setShowFilters] = useState(false)
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
+  const [selectedSubEventIds, setSelectedSubEventIds] = useState<string[]>([])
+  const [selectedVendorIds, setSelectedVendorIds] = useState<string[]>([])
+  const [filterSearch, setFilterSearch] = useState("")
 
   useEffect(() => {
     fetchData()
@@ -410,58 +423,58 @@ export default function CalendarPage() {
     try {
       setLoading(true)
 
-      // Get current user
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
-      if (userError || !user) {
-        console.error("User not found")
+      // Get or create account instance
+      const accountInstanceId = await getOrCreateAccountInstanceId()
+      if (!accountInstanceId) {
+        toast.error("Failed to initialize account. Please try again.")
         return
       }
 
-      // Get account instance
-      const { data: accountInstance, error: accountError } = await supabase
-        .from("account_instances")
-        .select("id")
-        .eq("owner_id", user.id)
-        .single()
-
-      if (accountError || !accountInstance) {
-        console.error("No account instance found")
-        return
-      }
-
-      setAccountInstanceId(accountInstance.id)
+      setAccountInstanceId(accountInstanceId)
 
       // Fetch events
       const { data: eventsData } = await supabase
         .from("events")
         .select("*")
-        .eq("account_instance_id", accountInstance.id)
+        .eq("account_instance_id", accountInstanceId)
 
       // Fetch sub-events
       const { data: subEventsData } = await supabase
         .from("sub_events")
         .select("*")
-        .eq("account_instance_id", accountInstance.id)
+        .eq("account_instance_id", accountInstanceId)
 
-      // Fetch vendor schedules
+      // Fetch vendors (using the correct table name)
       const { data: vendorsData } = await supabase
-        .from("vendor_schedules")
+        .from("vendors")
         .select("*")
-        .eq("account_instance_id", accountInstance.id)
+        .eq("account_instance_id", accountInstanceId)
 
       // Fetch personal calendar items
       const { data: personalData } = await supabase
         .from("personal_calendar_items")
         .select("*")
-        .eq("account_instance_id", accountInstance.id)
+        .eq("account_instance_id", accountInstanceId)
         .order("date", { ascending: true })
 
       if (eventsData) setEvents(eventsData)
       if (subEventsData) setSubEvents(subEventsData)
-      if (vendorsData) setVendorSchedules(vendorsData)
+      if (vendorsData) {
+        // Transform vendors data to match VendorSchedule interface
+        const transformedVendors = vendorsData.map(vendor => ({
+          id: vendor.id,
+          title: vendor.name || vendor.business_name || "Vendor",
+          description: vendor.description || vendor.event || "",
+          date: vendor.date,
+          start_time: vendor.start_time,
+          end_time: vendor.end_time || "",
+          location: vendor.location || "",
+          vendor_name: vendor.name || "",
+          vendor_business_name: vendor.business_name || vendor.name || "",
+          status: vendor.type || vendor.category || "Scheduled"
+        }))
+        setVendorSchedules(transformedVendors)
+      }
       if (personalData) setPersonalItems(personalData)
     } catch (error) {
       console.error("Error fetching data:", error)
@@ -472,9 +485,16 @@ export default function CalendarPage() {
   }
 
   const savePersonalItem = async (task: Task) => {
-    if (!accountInstanceId) {
-      toast.error("Account not found")
+    // Get or create account instance ID
+    const currentAccountInstanceId = accountInstanceId || await getOrCreateAccountInstanceId()
+    if (!currentAccountInstanceId) {
+      toast.error("Failed to initialize account. Please try again.")
       return
+    }
+
+    // Update state if we got a new account instance ID
+    if (!accountInstanceId) {
+      setAccountInstanceId(currentAccountInstanceId)
     }
 
     try {
@@ -490,7 +510,7 @@ export default function CalendarPage() {
         start_time: task.startTime || null,
         end_time: task.endTime || null,
         is_checklist: false,
-        account_instance_id: accountInstanceId,
+        account_instance_id: currentAccountInstanceId,
         created_by: user.id,
       }
 
@@ -588,7 +608,7 @@ export default function CalendarPage() {
     return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
   }
 
-  // Get all items for a specific date
+  // Get all items for a specific date with filtering
   const getItemsForDate = (date: Date) => {
     const dateStr = format(date, "yyyy-MM-dd")
     const items: Array<{
@@ -596,23 +616,23 @@ export default function CalendarPage() {
       data: Event | SubEvent | VendorSchedule | PersonalCalendarItem
     }> = []
 
-    // Add events
+    // Add events (with filtering)
     events.forEach((event) => {
-      if (event.date === dateStr) {
+      if (event.date === dateStr && (selectedEventIds.length === 0 || selectedEventIds.includes(event.id))) {
         items.push({ type: "event", data: event })
       }
     })
 
-    // Add sub-events
+    // Add sub-events (with filtering)
     subEvents.forEach((subEvent) => {
-      if (subEvent.date === dateStr) {
+      if (subEvent.date === dateStr && (selectedSubEventIds.length === 0 || selectedSubEventIds.includes(subEvent.id))) {
         items.push({ type: "sub-event", data: subEvent })
       }
     })
 
-    // Add vendor schedules
+    // Add vendor schedules (with filtering)
     vendorSchedules.forEach((schedule) => {
-      if (schedule.date === dateStr) {
+      if (schedule.date === dateStr && (selectedVendorIds.length === 0 || selectedVendorIds.includes(schedule.id))) {
         items.push({ type: "vendor", data: schedule })
       }
     })
@@ -910,7 +930,7 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-6 max-w-full p-6">
-      {/* Calendar Header */}
+      {/* Enhanced Header */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8 text-white shadow-2xl">
         <div className="absolute inset-0 bg-gradient-to-br from-rose-500/20 via-transparent to-amber-500/20"></div>
         <div className="relative">
@@ -951,6 +971,19 @@ export default function CalendarPage() {
             <div className="flex items-center gap-3">
               <Button
                 variant="outline"
+                onClick={() => setShowFilters(!showFilters)}
+                className={`border-slate-200 hover:bg-slate-50 ${showFilters ? "bg-slate-100" : ""}`}
+              >
+                <Settings className="w-4 h-4 mr-2" />
+                {showFilters ? "Hide Filters" : "Show Filters"}
+                {(selectedEventIds.length > 0 || selectedSubEventIds.length > 0 || selectedVendorIds.length > 0) && (
+                  <Badge variant="secondary" className="ml-2">
+                    {selectedEventIds.length + selectedSubEventIds.length + selectedVendorIds.length}
+                  </Badge>
+                )}
+              </Button>
+              <Button
+                variant="outline"
                 onClick={handlePrev}
                 className="border-slate-200 hover:bg-slate-50 bg-transparent"
               >
@@ -973,6 +1006,144 @@ export default function CalendarPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Filters Panel */}
+      {showFilters && (
+        <Card className="border-slate-200/50 shadow-sm bg-white/90 backdrop-blur-sm">
+          <CardContent className="p-6">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4 text-slate-500" />
+                <Input
+                  placeholder="Search events, sub-events, or vendors..."
+                  value={filterSearch}
+                  onChange={(e) => setFilterSearch(e.target.value)}
+                  className="max-w-md"
+                />
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Events Filter */}
+                <div className="space-y-2">
+                  <h4 className="font-medium text-slate-800 flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-blue-500" />
+                    Events ({events.length})
+                  </h4>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {events
+                      .filter(event => 
+                        !filterSearch || 
+                        event.name.toLowerCase().includes(filterSearch.toLowerCase())
+                      )
+                      .map(event => (
+                        <div key={event.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`event-${event.id}`}
+                            checked={selectedEventIds.includes(event.id)}
+                            onCheckedChange={(checked: boolean) => {
+                              if (checked) {
+                                setSelectedEventIds(prev => [...prev, event.id])
+                              } else {
+                                setSelectedEventIds(prev => prev.filter(id => id !== event.id))
+                              }
+                            }}
+                          />
+                          <Label htmlFor={`event-${event.id}`} className="text-sm">
+                            {event.name}
+                          </Label>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Sub-Events Filter */}
+                <div className="space-y-2">
+                  <h4 className="font-medium text-slate-800 flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-purple-500" />
+                    Sub-Events ({subEvents.length})
+                  </h4>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {subEvents
+                      .filter(subEvent => 
+                        !filterSearch || 
+                        subEvent.name.toLowerCase().includes(filterSearch.toLowerCase())
+                      )
+                      .map(subEvent => (
+                        <div key={subEvent.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`subevent-${subEvent.id}`}
+                            checked={selectedSubEventIds.includes(subEvent.id)}
+                            onCheckedChange={(checked: boolean) => {
+                              if (checked) {
+                                setSelectedSubEventIds(prev => [...prev, subEvent.id])
+                              } else {
+                                setSelectedSubEventIds(prev => prev.filter(id => id !== subEvent.id))
+                              }
+                            }}
+                          />
+                          <Label htmlFor={`subevent-${subEvent.id}`} className="text-sm">
+                            {subEvent.name}
+                          </Label>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Vendors Filter */}
+                <div className="space-y-2">
+                  <h4 className="font-medium text-slate-800 flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-orange-500" />
+                    Vendors ({vendorSchedules.length})
+                  </h4>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {vendorSchedules
+                      .filter(vendor => 
+                        !filterSearch || 
+                        vendor.title.toLowerCase().includes(filterSearch.toLowerCase()) ||
+                        vendor.vendor_name.toLowerCase().includes(filterSearch.toLowerCase())
+                      )
+                      .map(vendor => (
+                        <div key={vendor.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`vendor-${vendor.id}`}
+                            checked={selectedVendorIds.includes(vendor.id)}
+                            onCheckedChange={(checked: boolean) => {
+                              if (checked) {
+                                setSelectedVendorIds(prev => [...prev, vendor.id])
+                              } else {
+                                setSelectedVendorIds(prev => prev.filter(id => id !== vendor.id))
+                              }
+                            }}
+                          />
+                          <Label htmlFor={`vendor-${vendor.id}`} className="text-sm">
+                            {vendor.title}
+                          </Label>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Clear All Filters */}
+              {(selectedEventIds.length > 0 || selectedSubEventIds.length > 0 || selectedVendorIds.length > 0) && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedEventIds([])
+                    setSelectedSubEventIds([])
+                    setSelectedVendorIds([])
+                    setFilterSearch("")
+                  }}
+                  className="border-rose-200 text-rose-600 hover:bg-rose-50"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Clear All Filters
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Calendar Views */}
       <div className="h-[70vh]">
