@@ -4,8 +4,8 @@ import type { Database } from "./database.types"
 /* -------------------------------------------------------------------------- */
 /*                                  CONFIG                                    */
 /* -------------------------------------------------------------------------- */
-const SUPABASE_URL = "https://oskhkfnhikxveddjgodz.supabase.co"
-const SUPABASE_ANON_KEY =
+export const SUPABASE_URL = "https://oskhkfnhikxveddjgodz.supabase.co"
+export const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9za2hrZm5oaWt4dmVkZGpnb2R6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NzYwNDMsImV4cCI6MjA2MzQ1MjA0M30.Izet6wonn6vwEM9ZzOkSK2WkcIIMSP5nqoNpbFGF0EM"
 
 const isBrowser = typeof window !== "undefined"
@@ -24,8 +24,9 @@ export const createClientSupabase = () => {
       persistSession: isBrowser,
       autoRefreshToken: isBrowser,
       detectSessionInUrl: isBrowser,
+      // Use localStorage but ensure cookies are also set for API routes
       storage: isBrowser ? window.localStorage : undefined,
-      storageKey: 'supabase-auth-token',
+      storageKey: 'sb-oskhkfnhikxveddjgodz-auth-token',
       flowType: 'pkce',
     },
   })
@@ -35,9 +36,18 @@ export const createClientSupabase = () => {
     supabaseInstance.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') {
         console.log('Token refreshed successfully')
+        // Also set cookie for API routes
+        if (session?.access_token) {
+          document.cookie = `sb-oskhkfnhikxveddjgodz-auth-token=${session.access_token}; path=/; max-age=3600; samesite=lax`
+        }
+      } else if (event === 'SIGNED_IN') {
+        // Set cookie when user signs in
+        if (session?.access_token) {
+          document.cookie = `sb-oskhkfnhikxveddjgodz-auth-token=${session.access_token}; path=/; max-age=3600; samesite=lax`
+        }
       } else if (event === 'SIGNED_OUT') {
-        // Clear any stored tokens on sign out
-        localStorage.removeItem('supabase-auth-token')
+        // Clear cookie on sign out
+        document.cookie = 'sb-oskhkfnhikxveddjgodz-auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
       }
     })
   }
@@ -48,6 +58,8 @@ export const createClientSupabase = () => {
 /* Directly export the singleton so it can be imported where needed */
 export const supabase = createClientSupabase()
 
+
+
 // Helper function to handle refresh token errors
 export const handleAuthError = async (error: any) => {
   if (error?.message?.includes('Invalid Refresh Token') || error?.message?.includes('Refresh Token Not Found')) {
@@ -56,10 +68,9 @@ export const handleAuthError = async (error: any) => {
     // Clear the session
     await supabase.auth.signOut()
     
-    // Clear any stored tokens
+    // Clear cookie
     if (isBrowser) {
-      localStorage.removeItem('supabase-auth-token')
-      sessionStorage.removeItem('supabase-auth-token')
+      document.cookie = 'sb-oskhkfnhikxveddjgodz-auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     }
     
     // Redirect to login
@@ -79,28 +90,33 @@ export const clearAuthState = async () => {
     await supabase.auth.signOut()
     
     if (isBrowser) {
-      // Clear all possible storage locations
-      localStorage.removeItem('supabase-auth-token')
-      sessionStorage.removeItem('supabase-auth-token')
+      // Clear cookie
+      document.cookie = 'sb-oskhkfnhikxveddjgodz-auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+      
+      // Clear localStorage as well
       localStorage.removeItem('sb-oskhkfnhikxveddjgodz-auth-token')
-      sessionStorage.removeItem('sb-oskhkfnhikxveddjgodz-auth-token')
-      
-      // Clear any other potential storage keys
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('supabase') || key.includes('auth')) {
-          localStorage.removeItem(key)
-        }
-      })
-      
-      Object.keys(sessionStorage).forEach(key => {
-        if (key.includes('supabase') || key.includes('auth')) {
-          sessionStorage.removeItem(key)
-        }
-      })
     }
     
     console.log('Authentication state cleared successfully')
   } catch (error) {
     console.error('Error clearing auth state:', error)
+  }
+}
+
+// Utility function to ensure auth cookie is set for current session
+export const ensureAuthCookie = async () => {
+  if (!isBrowser) return
+  
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    console.log('ensureAuthCookie - session:', session ? 'found' : 'not found')
+    if (session?.access_token) {
+      document.cookie = `sb-oskhkfnhikxveddjgodz-auth-token=${session.access_token}; path=/; max-age=3600; samesite=lax`
+      console.log('Auth cookie set for current session')
+    } else {
+      console.log('No access token found in session')
+    }
+  } catch (error) {
+    console.error('Error setting auth cookie:', error)
   }
 }

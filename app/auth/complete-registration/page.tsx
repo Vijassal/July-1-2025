@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { createClientSupabase } from "@/lib/supabase"
 import { useForm } from "react-hook-form"
@@ -16,11 +16,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
 
-const registerSchema = z
+const completeRegistrationSchema = z
   .object({
     firstName: z.string().min(2, "First name must be at least 2 characters"),
     lastName: z.string().min(2, "Last name must be at least 2 characters"),
-    email: z.string().email("Please enter a valid email address"),
     password: z
       .string()
       .min(8, "Password must be at least 8 characters")
@@ -35,68 +34,156 @@ const registerSchema = z
     path: ["confirmPassword"],
   })
 
-type RegisterFormData = z.infer<typeof registerSchema>
+type CompleteRegistrationFormData = z.infer<typeof completeRegistrationSchema>
 
-export default function RegisterPage() {
+export default function CompleteRegistrationPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [invitedEmail, setInvitedEmail] = useState("")
+  const [isValidInvite, setIsValidInvite] = useState(false)
+  const [checkingInvite, setCheckingInvite] = useState(true)
 
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClientSupabase()
 
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<RegisterFormData>({
-    resolver: zodResolver(registerSchema),
+  } = useForm<CompleteRegistrationFormData>({
+    resolver: zodResolver(completeRegistrationSchema),
     defaultValues: {
       firstName: "",
       lastName: "",
-      email: "",
       password: "",
       confirmPassword: "",
     },
   })
 
-  const onSubmit = async (data: RegisterFormData) => {
+  // Check if this is a valid invite
+  useEffect(() => {
+    const checkInvite = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (!user) {
+          setError("No authenticated user found")
+          setCheckingInvite(false)
+          return
+        }
+
+        // Check if user has a pending invite
+        const { data: pendingInvite, error: inviteError } = await supabase
+          .from("account_instance_users")
+          .select("id, account_instance_id, role")
+          .eq("invited_email", user.email?.toLowerCase())
+          .eq("status", "pending")
+          .single()
+
+        if (pendingInvite && !inviteError) {
+          setInvitedEmail(user.email || "")
+          setIsValidInvite(true)
+        } else {
+          setError("No pending invitation found for this email")
+        }
+      } catch (error) {
+        console.error("Error checking invite:", error)
+        setError("Failed to verify invitation")
+      } finally {
+        setCheckingInvite(false)
+      }
+    }
+
+    checkInvite()
+  }, [supabase])
+
+  const onSubmit = async (data: CompleteRegistrationFormData) => {
     setError("")
     setIsLoading(true)
 
     try {
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          data: {
-            first_name: data.firstName,
-            last_name: data.lastName,
-            name: `${data.firstName} ${data.lastName}`,
-          },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
+      // Update user metadata with first and last name
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: {
+          first_name: data.firstName,
+          last_name: data.lastName,
+          name: `${data.firstName} ${data.lastName}`,
+          registration_completed: true
+        }
       })
 
-      if (signUpError) {
-        setError(signUpError.message)
-        toast.error(signUpError.message)
-        return
+      if (updateError) {
+        throw updateError
       }
 
-      // Account initialization is handled automatically by database trigger
-      // No need for manual initialization here
+      // Update password
+      const { error: passwordError } = await supabase.auth.updateUser({
+        password: data.password
+      })
 
-      toast.success("Account created successfully! Please check your email to verify your account.")
-      router.push("/auth/login?registered=true&message=Please check your email to verify your account")
+      if (passwordError) {
+        throw passwordError
+      }
+
+      // Update the account_instance_users table to mark the user as active
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { error: accountUpdateError } = await supabase
+          .from("account_instance_users")
+          .update({
+            status: "active",
+            user_id: user.id
+          })
+          .eq("invited_email", user.email?.toLowerCase())
+          .eq("status", "pending")
+
+        if (accountUpdateError) {
+          console.error("Error updating account instance user:", accountUpdateError)
+          // Don't throw error here as the main registration is complete
+        }
+      }
+
+      toast.success("Registration completed successfully!")
+      router.push("/dashboard")
     } catch (err) {
-      const errorMessage = "An unexpected error occurred. Please try again."
+      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred. Please try again."
       setError(errorMessage)
       toast.error(errorMessage)
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (checkingInvite) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p>Verifying invitation...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isValidInvite) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Invalid Invitation</CardTitle>
+            <CardDescription>{error}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/auth/login">
+              <Button className="w-full">Go to Login</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -106,28 +193,10 @@ export default function RegisterPage() {
         <div className="absolute inset-0 bg-grid-white/10 bg-grid-16" />
         <div className="relative w-full flex items-center justify-center p-12">
           <div className="text-center space-y-6 max-w-md">
-            <h1 className="text-5xl font-bold text-primary-foreground drop-shadow-lg">Join Events Planning</h1>
+            <h1 className="text-5xl font-bold text-primary-foreground drop-shadow-lg">Complete Registration</h1>
             <p className="text-xl text-primary-foreground/90">
-              Start creating unforgettable moments with our comprehensive event planning tools
+              You've been invited to join an event planning team. Complete your registration to get started.
             </p>
-            <div className="grid grid-cols-2 gap-4 text-primary-foreground/80">
-              <div className="text-center">
-                <div className="text-lg font-semibold">Easy Planning</div>
-                <div className="text-sm">Intuitive tools</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-semibold">Budget Tracking</div>
-                <div className="text-sm">Stay on budget</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-semibold">Guest Management</div>
-                <div className="text-sm">RSVP tracking</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-semibold">Vendor Network</div>
-                <div className="text-sm">Trusted partners</div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -136,8 +205,8 @@ export default function RegisterPage() {
       <div className="flex-1 flex items-center justify-center p-8 bg-background min-w-0">
         <Card className="w-full max-w-md">
           <CardHeader className="space-y-1 text-center">
-            <CardTitle className="text-3xl font-bold">Create an Account</CardTitle>
-            <CardDescription>Join us to start planning your perfect events</CardDescription>
+            <CardTitle className="text-3xl font-bold">Complete Your Registration</CardTitle>
+            <CardDescription>Welcome! Please complete your account setup</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {error && (
@@ -145,6 +214,12 @@ export default function RegisterPage() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
+
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>Invited Email:</strong> {invitedEmail}
+              </p>
+            </div>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -180,47 +255,24 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email address</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="john@example.com"
-                    className="pl-10"
-                    disabled={isLoading}
-                    {...register("email")}
-                  />
-                </div>
-                {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
-                    placeholder="Create a strong password"
+                    placeholder="Create a password"
                     className="pl-10 pr-10"
                     disabled={isLoading}
                     {...register("password")}
                   />
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
-                    disabled={isLoading}
+                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <Eye className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </Button>
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
                 {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
               </div>
@@ -237,20 +289,13 @@ export default function RegisterPage() {
                     disabled={isLoading}
                     {...register("confirmPassword")}
                   />
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    disabled={isLoading}
+                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
                   >
-                    {showConfirmPassword ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <Eye className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </Button>
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
                 {errors.confirmPassword && <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>}
               </div>
@@ -259,17 +304,17 @@ export default function RegisterPage() {
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating account...
+                    Completing Registration...
                   </>
                 ) : (
-                  "Create account"
+                  "Complete Registration"
                 )}
               </Button>
             </form>
 
-            <div className="text-center text-sm">
-              <span className="text-muted-foreground">Already have an account? </span>
-              <Link href="/auth/login" className="text-primary hover:text-primary/80 font-medium transition-colors">
+            <div className="text-center text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Link href="/auth/login" className="text-primary hover:underline">
                 Sign in
               </Link>
             </div>
@@ -278,4 +323,4 @@ export default function RegisterPage() {
       </div>
     </div>
   )
-}
+} 

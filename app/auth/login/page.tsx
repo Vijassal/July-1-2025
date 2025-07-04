@@ -58,8 +58,9 @@ export default function LoginPage() {
   // Show registration success message if redirected from register
   React.useEffect(() => {
     if (searchParams.get("registered") === "true") {
-      setSuccess("Registration successful! Please sign in with your new account.")
-      toast.success("Registration successful! Please sign in.")
+      const message = searchParams.get("message")
+      setSuccess(message || "Registration successful! Please sign in with your new account.")
+      toast.success(message || "Registration successful! Please sign in.")
     }
   }, [searchParams])
 
@@ -94,6 +95,13 @@ export default function LoginPage() {
       }
 
       if (authData.user) {
+        // Check if user was invited and needs to complete registration
+        if (authData.user.user_metadata?.invited && !authData.user.user_metadata?.registration_completed) {
+          toast.success("Welcome! Please complete your registration.")
+          window.location.href = "/auth/complete-registration"
+          return
+        }
+
         // Check if user is registered for the selected type
         const registeredTypes = await getUserRegisteredTypes(authData.user.id)
         console.log('[Login] Registered types:', registeredTypes)

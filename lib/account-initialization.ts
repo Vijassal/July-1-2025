@@ -25,6 +25,20 @@ export class AccountInitialization {
         return { success: false, error: "Failed to create account instance" }
       }
 
+      // Insert owner into account_instance_users
+      const { error: userInsertError } = await supabase
+        .from("account_instance_users")
+        .insert({
+          account_instance_id: accountInstance.id,
+          user_id: userId,
+          role: "owner",
+          status: "active",
+          is_owner: true
+        })
+      if (userInsertError) {
+        console.error("Error inserting owner into account_instance_users:", userInsertError)
+      }
+
       // Register user as regular type by default
       const registrationResult = await registerUserType(userId, "regular")
       if (!registrationResult.success) {

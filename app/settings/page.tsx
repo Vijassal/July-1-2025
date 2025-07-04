@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useEffect, useState } from "react"
-import { createClientSupabase } from "@/lib/supabase"
+import { createClientSupabase, ensureAuthCookie } from "@/lib/supabase"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,11 +28,13 @@ interface UserProfile {
 
 interface TeamMember {
   id: string
-  email: string
+  email?: string
+  invited_email?: string
   name: string | null
   role: string
   status: "active" | "pending" | "inactive"
-  invited_at: string
+  invited_at?: string
+  is_owner?: boolean
 }
 
 interface AppConfiguration {
@@ -75,12 +77,15 @@ export default function SettingsPage() {
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [teamMembersLoading, setTeamMembersLoading] = useState(false)
   const [configuration, setConfiguration] = useState<AppConfiguration>({
     currency: "USD",
     religion_enabled: true,
     floorplan_enabled: true,
   })
   const [inviteEmail, setInviteEmail] = useState("")
+  const [inviteFirstName, setInviteFirstName] = useState("")
+  const [inviteLastName, setInviteLastName] = useState("")
   const [inviting, setInviting] = useState(false)
   const [configTableMissing, setConfigTableMissing] = useState(false)
   const { currentAccount, refreshAccountData } = useAccount();
@@ -88,16 +93,20 @@ export default function SettingsPage() {
   const [subLoading, setSubLoading] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
-  const [currency, setCurrency] = useState<string | undefined>(undefined);
+  const [currency, setCurrency] = useState<string>("USD");
+  const [deletingMember, setDeletingMember] = useState<string | null>(null);
+  const [memberToDelete, setMemberToDelete] = useState<TeamMember | null>(null);
 
   const supabase = createClientSupabase()
 
   const fetchUserProfile = async (userId: string) => {
     try {
-      // For now, we'll use the auth user data since we might not have a custom users table
       const {
         data: { user },
+        error
       } = await supabase.auth.getUser()
+
+      if (error) throw error
 
       if (user) {
         const userProfile: UserProfile = {
@@ -115,30 +124,45 @@ export default function SettingsPage() {
   }
 
   const fetchTeamMembers = async () => {
+    if (!currentAccount?.id) {
+      console.log("No current account, skipping team members fetch")
+      return
+    }
+
+    console.log("Fetching team members for account:", currentAccount.id);
+    setTeamMembersLoading(true)
     try {
-      // Mock data for team members since the table might not exist yet
-      const mockTeamMembers: TeamMember[] = [
-        {
-          id: "1",
-          email: "john.doe@example.com",
-          name: "John Doe",
-          role: "Admin",
-          status: "active",
-          invited_at: new Date().toISOString(),
-        },
-        {
-          id: "2",
-          email: "jane.smith@example.com",
-          name: "Jane Smith",
-          role: "Editor",
-          status: "pending",
-          invited_at: new Date().toISOString(),
-        },
-      ]
-      setTeamMembers(mockTeamMembers)
+      // Directly query the account_instance_users table
+      const { data, error } = await supabase
+        .from("account_instance_users")
+        .select("id, user_id, invited_email, role, status, is_owner, created_at")
+        .eq("account_instance_id", currentAccount.id)
+
+      if (error) {
+        throw error
+      }
+
+      console.log("Team members data from database:", data);
+      
+      const mappedMembers = (data || []).map((member: any) => ({
+        id: member.id,
+        email: undefined, // not available from this query
+        invited_email: member.invited_email,
+        name: null, // no name available from this table
+        role: member.role,
+        status: member.status,
+        invited_at: member.created_at,
+        is_owner: member.is_owner,
+      }));
+
+      console.log("Mapped team members:", mappedMembers);
+      setTeamMembers(mappedMembers);
     } catch (error) {
       console.error("Error fetching team members:", error)
-      toast.error("Failed to load team members")
+      toast.error(error instanceof Error ? error.message : "Failed to load team members")
+      setTeamMembers([])
+    } finally {
+      setTeamMembersLoading(false)
     }
   }
 
@@ -185,7 +209,10 @@ export default function SettingsPage() {
 
         const {
           data: { user },
+          error
         } = await supabase.auth.getUser()
+
+        if (error) throw error
 
         if (!user) {
           toast.error("Please log in to access settings")
@@ -194,8 +221,11 @@ export default function SettingsPage() {
 
         setUser(user)
 
+        // Ensure auth cookie is set for API routes
+        await ensureAuthCookie()
+
         // Fetch all data
-        await Promise.all([fetchUserProfile(user.id), fetchTeamMembers(), fetchConfiguration()])
+        await Promise.all([fetchUserProfile(user.id), fetchConfiguration()])
       } catch (error) {
         console.error("Error initializing settings:", error)
         toast.error("Failed to load settings")
@@ -210,7 +240,12 @@ export default function SettingsPage() {
   useEffect(() => {
     if (currentAccount) {
       setCurrency(currentAccount.currency || "USD")
-      setLoading(false)
+      // Ensure auth cookie is set and fetch team members when account changes
+      const fetchWithAuth = async () => {
+        await ensureAuthCookie()
+        await fetchTeamMembers()
+      }
+      fetchWithAuth()
     }
   }, [currentAccount])
 
@@ -224,6 +259,7 @@ export default function SettingsPage() {
         const result = await SubscriptionService.getUserSubscriptionWithPlan(user.id);
         setSubscription(result);
       } catch (err) {
+        console.error("Error fetching subscription:", err)
         setSubscriptionError("Failed to load subscription info");
       } finally {
         setSubLoading(false);
@@ -257,33 +293,6 @@ export default function SettingsPage() {
     }
   }
 
-  const handleInviteUser = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!inviteEmail.trim()) return
-
-    setInviting(true)
-    try {
-      // Mock invite functionality
-      const newMember: TeamMember = {
-        id: Date.now().toString(),
-        email: inviteEmail,
-        name: null,
-        role: "Editor",
-        status: "pending",
-        invited_at: new Date().toISOString(),
-      }
-
-      setTeamMembers((prev) => [...prev, newMember])
-      setInviteEmail("")
-      toast.success(`Invitation sent to ${inviteEmail}`)
-    } catch (error) {
-      console.error("Error inviting user:", error)
-      toast.error("Failed to send invitation")
-    } finally {
-      setInviting(false)
-    }
-  }
-
   const handleConfigurationSave = async () => {
     setSaving(true)
     try {
@@ -304,20 +313,72 @@ export default function SettingsPage() {
 
   // Update currency on account instance
   const handleCurrencyChange = async (value: string) => {
-    setCurrency(value)
-    setSaving(true)
-    if (!currentAccount) {
-      setSaving(false)
-      return
+    setCurrency(value);
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("account_instances")
+        .update({ currency: value })
+        .eq("id", currentAccount?.id);
+
+      if (error) throw error;
+      toast.success("Currency updated successfully");
+    } catch (error) {
+      console.error("Error updating currency:", error);
+      toast.error("Failed to update currency");
+    } finally {
+      setSaving(false);
     }
-    await fetch(`/api/account-instances/update-currency`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: currentAccount.id, currency: value })
-    })
-    await refreshAccountData()
-    setSaving(false)
-  }
+  };
+
+  const handleDeleteMember = async (memberId: string) => {
+    if (!currentAccount?.id) {
+      toast.error("No account found");
+      return;
+    }
+
+    console.log("Starting delete operation for member:", memberId);
+    setDeletingMember(memberId);
+    try {
+      const response = await fetch("/api/team/remove", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          memberId,
+          accountInstanceId: currentAccount.id,
+        }),
+      });
+
+      const data = await response.json();
+      console.log("Delete API response:", { status: response.status, data });
+      console.log("Response data details:", JSON.stringify(data, null, 2));
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to remove team member");
+      }
+
+      toast.success(data.message || "Team member removed successfully");
+      console.log("Refreshing team members list...");
+      await fetchTeamMembers(); // Refresh the team members list
+      console.log("Team members refresh completed");
+    } catch (error) {
+      console.error("Error in delete operation:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to remove team member");
+    } finally {
+      setDeletingMember(null);
+      setMemberToDelete(null);
+    }
+  };
+
+  const confirmDeleteMember = (member: TeamMember) => {
+    console.log('Confirming delete for member:', member);
+    setMemberToDelete(member);
+  };
+
+  const cancelDelete = () => {
+    setMemberToDelete(null);
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -438,6 +499,37 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
+          {/* Delete Confirmation Dialog */}
+          {memberToDelete && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                <h3 className="text-lg font-semibold text-slate-800 mb-2">Remove Team Member</h3>
+                <p className="text-slate-600 mb-4">
+                  Are you sure you want to remove <strong>{memberToDelete.name || memberToDelete.invited_email || memberToDelete.email}</strong> from the team? This action cannot be undone.
+                </p>
+                <div className="flex gap-3 justify-end">
+                  <Button variant="outline" onClick={cancelDelete} disabled={deletingMember === memberToDelete.id}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    variant="destructive" 
+                    onClick={() => handleDeleteMember(memberToDelete.id)}
+                    disabled={deletingMember === memberToDelete.id}
+                  >
+                    {deletingMember === memberToDelete.id ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Removing...
+                      </>
+                    ) : (
+                      "Remove Member"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Team Management Section */}
           <Card className="border-slate-200/50 shadow-lg bg-white/90 backdrop-blur-sm">
             <CardHeader>
@@ -450,65 +542,158 @@ export default function SettingsPage() {
               {/* Invite Form */}
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <h3 className="font-medium text-slate-800 mb-3">Invite Team Member</h3>
-                <form onSubmit={handleInviteUser} className="flex gap-3">
-                  <div className="flex-1">
-                    <Input
-                      type="email"
-                      placeholder="Enter email address"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      required
-                    />
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!inviteEmail.trim() || !inviteFirstName.trim() || !inviteLastName.trim() || !currentAccount?.id) return;
+                    setInviting(true);
+                    try {
+                      const response = await fetch("/api/team/invite", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({
+                          email: inviteEmail.trim(),
+                          firstName: inviteFirstName.trim(),
+                          lastName: inviteLastName.trim(),
+                          accountInstanceId: currentAccount.id,
+                          role: "member",
+                        }),
+                      });
+                      const data = await response.json();
+                      if (!response.ok) throw new Error(data.error || "Failed to send invitation");
+                      setInviteEmail("");
+                      setInviteFirstName("");
+                      setInviteLastName("");
+                      toast.success(data.message || `Invitation sent to ${inviteEmail}`);
+                      await fetchTeamMembers();
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Failed to send invitation");
+                    } finally {
+                      setInviting(false);
+                    }
+                  }}
+                  className="space-y-3"
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Input
+                        type="text"
+                        placeholder="First Name"
+                        value={inviteFirstName}
+                        onChange={(e) => setInviteFirstName(e.target.value)}
+                        required
+                        disabled={inviting}
+                      />
+                    </div>
+                    <div>
+                      <Input
+                        type="text"
+                        placeholder="Last Name"
+                        value={inviteLastName}
+                        onChange={(e) => setInviteLastName(e.target.value)}
+                        required
+                        disabled={inviting}
+                      />
+                    </div>
                   </div>
-                  <Button type="submit" disabled={inviting}>
-                    {inviting ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Inviting...
-                      </>
-                    ) : (
-                      <>
-                        <Mail className="mr-2 h-4 w-4" />
-                        Invite
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <Input
+                        type="email"
+                        placeholder="Enter email address"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        required
+                        disabled={inviting}
+                      />
+                    </div>
+                    <Button type="submit" disabled={inviting || !currentAccount?.id}>
+                      {inviting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inviting...
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="mr-2 h-4 w-4" /> Invite
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </form>
               </div>
 
               {/* Team Members List */}
               <div className="space-y-3">
                 <h3 className="font-medium text-slate-800">Current Team Members</h3>
-                <div className="space-y-2">
-                  {(teamMembers.length > 0 ? teamMembers : [
-                    { id: "1", email: "john.doe@example.com", name: "John Doe", role: "Admin", status: "active", invited_at: new Date().toISOString() },
-                    { id: "2", email: "jane.smith@example.com", name: "Jane Smith", role: "Editor", status: "pending", invited_at: new Date().toISOString() },
-                  ]).map((member) => (
-                    <div
-                      key={member.id}
-                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                          {member.name ? member.name.charAt(0).toUpperCase() : member.email.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-800">{member.name || member.email}</p>
-                          {member.name && <p className="text-sm text-slate-600">{member.email}</p>}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Badge className={`${getStatusColor(member.status)} text-xs`}>
-                          <div className="flex items-center gap-1">
-                            {getStatusIcon(member.status)}
-                            {member.status}
+                {teamMembersLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    <span className="ml-2 text-sm text-muted-foreground">Loading team members...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {teamMembers.length > 0 ? (
+                      teamMembers.map((member) => (
+                        <div
+                          key={member.id}
+                          className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                              {(member.name ? member.name.charAt(0) : (member.invited_email || member.email)?.charAt(0) || '?').toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-medium text-slate-800">
+                                {member.name || member.invited_email || member.email}
+                                {member.is_owner && (
+                                  <span className="ml-2 px-2 py-0.5 text-xs rounded bg-orange-100 text-orange-700 border border-orange-200">Owner</span>
+                                )}
+                              </p>
+                              {member.name && <p className="text-sm text-slate-600">{member.invited_email || member.email}</p>}
+                            </div>
                           </div>
-                        </Badge>
-                        <span className="text-sm text-slate-600">{member.role}</span>
+                          <div className="flex items-center gap-3">
+                            <Badge className={`${getStatusColor(member.status)} text-xs`}>
+                              <div className="flex items-center gap-1">
+                                {getStatusIcon(member.status)}
+                                {member.status}
+                              </div>
+                            </Badge>
+                            <span className="text-sm text-slate-600">{member.is_owner ? 'Owner' : member.role}</span>
+                            {!member.is_owner && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => confirmDeleteMember(member)}
+                                disabled={deletingMember === member.id}
+                                className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                              >
+                                {deletingMember === member.id ? (
+                                  <>
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                    Removing...
+                                  </>
+                                ) : (
+                                  <>
+                                    <XCircle className="mr-1 h-3 w-3" />
+                                    Remove
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-slate-500">
+                        <Users className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                        <p className="text-sm">No team members yet</p>
+                        <p className="text-xs text-slate-400">Invite someone to get started</p>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

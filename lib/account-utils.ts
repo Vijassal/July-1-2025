@@ -40,6 +40,20 @@ export async function ensureAccountInstance(userId: string, userEmail?: string):
       }
     }
 
+    // Insert owner into account_instance_users
+    const { error: userInsertError } = await supabase
+      .from("account_instance_users")
+      .insert({
+        account_instance_id: accountInstance.id,
+        user_id: userId,
+        role: "owner",
+        status: "active",
+        is_owner: true
+      })
+    if (userInsertError) {
+      console.error("Error inserting owner into account_instance_users:", userInsertError)
+    }
+
     // Create default app configuration
     await createDefaultAppConfiguration(accountInstance.id)
 

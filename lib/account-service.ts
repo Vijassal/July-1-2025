@@ -91,9 +91,23 @@ export class AccountService {
         .select()
         .single()
 
-      if (error) {
+      if (error || !data) {
         console.error("Error creating account instance:", error)
         return null
+      }
+
+      // Insert owner into account_instance_users
+      const { error: userInsertError } = await supabase
+        .from("account_instance_users")
+        .insert({
+          account_instance_id: data.id,
+          user_id: userId,
+          role: "owner",
+          status: "active",
+          is_owner: true
+        })
+      if (userInsertError) {
+        console.error("Error inserting owner into account_instance_users:", userInsertError)
       }
 
       return data
