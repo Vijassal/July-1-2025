@@ -5,6 +5,7 @@ import "./globals.css"
 import ClientLayout from "./components/ClientLayout"
 import { Toaster } from "sonner"
 import { AccountProvider } from "@/lib/account-context"
+import { FeatureFlagsProvider } from "@/lib/feature-flags"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -56,7 +57,9 @@ export default function RootLayout({
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <body className={`${inter.className} antialiased`}>
         <AccountProvider>
-          <ClientLayout>{children}</ClientLayout>
+          <FeatureFlagsProvider>
+            <ClientLayout>{children}</ClientLayout>
+          </FeatureFlagsProvider>
         </AccountProvider>
         <Toaster position="top-right" expand={false} richColors closeButton />
       </body>

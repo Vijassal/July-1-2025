@@ -1,0 +1,1 @@
+ALTER TABLE account_instances ADD COLUMN IF NOT EXISTS trip_plan_enabled BOOLEAN DEFAULT true; 

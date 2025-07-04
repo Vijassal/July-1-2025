@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS app_configurations (
     currency VARCHAR(3) NOT NULL DEFAULT 'USD',
     religion_enabled BOOLEAN NOT NULL DEFAULT false,
     floorplan_enabled BOOLEAN NOT NULL DEFAULT false,
+    trip_plan_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(account_instance_id)

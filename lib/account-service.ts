@@ -7,6 +7,7 @@ export interface AccountInstance {
   owner_user_id: string
   owner_id: string
   currency: string
+  trip_plan_enabled: boolean
   created_at: string
 }
 

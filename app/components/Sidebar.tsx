@@ -13,6 +13,7 @@ import {
   DollarSign,
   Settings,
   ArrowRight,
+  Plane,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -20,6 +21,7 @@ import { supabase } from "@/lib/supabase"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { useFeatureFlags } from "@/lib/feature-flags"
 
 interface NavLink {
   name: string
@@ -38,24 +40,28 @@ const mainNavigation: NavLink[] = [
   { name: "Vendors", href: "/vendors", icon: Briefcase },
 ]
 
-const toolsNavigation: NavLink[] = [
-  { name: "Invite", href: "/invite", icon: UserPlus },
-  { name: "Plan", href: "/plan", icon: Edit },
-  { name: "Map", href: "/map", icon: Map },
-  { name: "Chat", href: "/chat", icon: MessageSquare },
-  { name: "Budget", href: "/budget", icon: DollarSign },
-  // { name: "Gallery", href: "/gallery", icon: ImageIcon }, // Commented out for initial launch
-]
-
 export default function Sidebar({ open: controlledOpen, setOpen: controlledSetOpen }: SidebarProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
+  const { features } = useFeatureFlags()
 
   const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen
   const setOpen = controlledSetOpen !== undefined ? controlledSetOpen : setUncontrolledOpen
 
   const pathname = usePathname()
   const router = useRouter()
+
+  // Build tools navigation based on feature flags
+  const toolsNavigation: NavLink[] = [
+    { name: "Invite", href: "/invite", icon: UserPlus },
+    { name: "Plan", href: "/plan", icon: Edit },
+    { name: "Map", href: "/map", icon: Map },
+    { name: "Chat", href: "/chat", icon: MessageSquare },
+    { name: "Budget", href: "/budget", icon: DollarSign },
+    // Add trip plan if enabled
+    ...(features.trip_plan_enabled ? [{ name: "Trip Plan", href: "/trip-plan", icon: Plane }] : []),
+    // { name: "Gallery", href: "/gallery", icon: ImageIcon }, // Commented out for initial launch
+  ]
 
   useEffect(() => {
     const checkMobile = () => {
@@ -121,7 +127,7 @@ export default function Sidebar({ open: controlledOpen, setOpen: controlledSetOp
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   )}
                 >
-                  <Icon size={20} />
+                  <Icon className="w-5 h-5" />
                   <span className="absolute left-1/2 -translate-x-1/2 top-10 whitespace-nowrap bg-popover text-popover-foreground text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 border">
                     {item.name}
                   </span>
@@ -151,7 +157,7 @@ export default function Sidebar({ open: controlledOpen, setOpen: controlledSetOp
                     )}
                   >
                     <span className="flex-1 text-center">{item.name}</span>
-                    <Icon size={20} className="ml-2" />
+                    <Icon className="w-5 h-5 ml-2" />
                   </Link>
                 </div>
               )
@@ -168,7 +174,7 @@ export default function Sidebar({ open: controlledOpen, setOpen: controlledSetOp
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                 )}
               >
-                <Icon size={20} />
+                <Icon className="w-5 h-5" />
                 <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap bg-popover text-popover-foreground text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-100 z-50 border">
                   {item.name}
                 </span>
@@ -190,7 +196,7 @@ export default function Sidebar({ open: controlledOpen, setOpen: controlledSetOp
                   className="flex items-center w-full h-12 rounded-md border border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors text-sm font-medium px-4"
                 >
                   <span className="flex-1 text-center">Settings</span>
-                  <Settings size={20} className="ml-2" />
+                  <Settings className="w-5 h-5 ml-2" />
                 </Link>
               </div>
             ) : (
@@ -198,7 +204,7 @@ export default function Sidebar({ open: controlledOpen, setOpen: controlledSetOp
                 href="/settings"
                 className="group relative flex items-center justify-center w-full h-16 rounded-md border border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors p-0 leading-none"
               >
-                <Settings size={20} />
+                <Settings className="w-5 h-5" />
                 <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap bg-popover text-popover-foreground text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-100 z-50 border">
                   Settings
                 </span>

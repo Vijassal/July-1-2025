@@ -18,6 +18,7 @@ import { toast } from "sonner"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { useAccount } from "@/lib/account-context"
 import { SubscriptionService } from "@/lib/subscription-service"
+import { useFeatureFlags } from "@/lib/feature-flags"
 
 interface UserProfile {
   id: string
@@ -41,6 +42,7 @@ interface AppConfiguration {
   currency: string
   religion_enabled: boolean
   floorplan_enabled: boolean
+  trip_plan_enabled: boolean
 }
 
 const AVAILABLE_CURRENCIES = [
@@ -82,13 +84,14 @@ export default function SettingsPage() {
     currency: "USD",
     religion_enabled: true,
     floorplan_enabled: true,
+    trip_plan_enabled: true,
   })
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteFirstName, setInviteFirstName] = useState("")
   const [inviteLastName, setInviteLastName] = useState("")
   const [inviting, setInviting] = useState(false)
-  const [configTableMissing, setConfigTableMissing] = useState(false)
   const { currentAccount, refreshAccountData } = useAccount();
+  const { refreshFeatures } = useFeatureFlags();
   const [activeTab, setActiveTab] = useState("settings");
   const [subLoading, setSubLoading] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
@@ -166,42 +169,6 @@ export default function SettingsPage() {
     }
   }
 
-  const fetchConfiguration = async () => {
-    try {
-      const { data, error } = await supabase.from("app_configurations").select("*").limit(1).single()
-
-      if (error) {
-        // Check if the error is due to missing table or no data
-        if (error.message?.includes("relation") && error.message?.includes("does not exist")) {
-          console.log("Configuration table does not exist, using defaults")
-          setConfigTableMissing(true)
-          return
-        }
-
-        if (error.code === "PGRST116") {
-          // No rows returned, use defaults
-          console.log("No configuration found, using defaults")
-          return
-        }
-
-        throw error
-      }
-
-      if (data) {
-        setConfiguration({
-          currency: data.currency || "USD",
-          religion_enabled: data.religion_enabled ?? true,
-          floorplan_enabled: data.floorplan_enabled ?? true,
-        })
-        setConfigTableMissing(false)
-      }
-    } catch (error) {
-      console.error("Error fetching configuration:", error)
-      // Don't show error toast, just use defaults and set table missing flag
-      setConfigTableMissing(true)
-    }
-  }
-
   useEffect(() => {
     const initializeData = async () => {
       try {
@@ -225,7 +192,7 @@ export default function SettingsPage() {
         await ensureAuthCookie()
 
         // Fetch all data
-        await Promise.all([fetchUserProfile(user.id), fetchConfiguration()])
+        await Promise.all([fetchUserProfile(user.id), fetchTeamMembers()])
       } catch (error) {
         console.error("Error initializing settings:", error)
         toast.error("Failed to load settings")
@@ -239,7 +206,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (currentAccount) {
+      console.log('[Settings] currentAccount:', currentAccount)
       setCurrency(currentAccount.currency || "USD")
+      setConfiguration(prev => ({
+        ...prev,
+        trip_plan_enabled: currentAccount.trip_plan_enabled ?? true
+      }))
       // Ensure auth cookie is set and fetch team members when account changes
       const fetchWithAuth = async () => {
         await ensureAuthCookie()
@@ -294,15 +266,36 @@ export default function SettingsPage() {
   }
 
   const handleConfigurationSave = async () => {
+    if (!currentAccount?.id) {
+      toast.error("No account found")
+      return
+    }
+
     setSaving(true)
     try {
-      if (configTableMissing) {
-        toast.error("Configuration table not found. Please run the database migration first.")
-        return
-      }
+      // Save trip_plan_enabled to account_instances table
+      const { error } = await supabase
+        .from("account_instances")
+        .update({ 
+          trip_plan_enabled: configuration.trip_plan_enabled 
+        })
+        .eq("id", currentAccount.id)
 
-      // Mock save functionality since table might not exist
+      if (error) throw error
+
       toast.success("Configuration saved successfully")
+      
+      // Immediately refresh feature flags
+      await refreshFeatures()
+      
+      // Refresh account data to get updated values
+      await refreshAccountData()
+      
+      // Force a small delay to ensure all contexts are updated
+      setTimeout(() => {
+        window.location.reload()
+      }, 500)
+      
     } catch (error) {
       console.error("Error saving configuration:", error)
       toast.error("Failed to save configuration")
@@ -707,14 +700,6 @@ export default function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {configTableMissing && (
-                <Alert className="border-yellow-200 bg-yellow-50">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                  <AlertDescription className="text-yellow-800">
-                    Configuration table not found. Please run the database migration to enable configuration management.
-                  </AlertDescription>
-                </Alert>
-              )}
               <div className="grid gap-6 md:grid-cols-2">
                 {/* Currency Selection */}
                 <div className="space-y-3">
@@ -742,7 +727,6 @@ export default function SettingsPage() {
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <Label className="text-base font-medium">Feature Settings</Label>
-                    <span className="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded-full ml-2">Coming Soon</span>
                   </div>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -753,7 +737,6 @@ export default function SettingsPage() {
                       <Switch
                         checked={configuration.religion_enabled}
                         onCheckedChange={(checked) => setConfiguration((prev) => ({ ...prev, religion_enabled: checked }))}
-                        disabled={configTableMissing}
                       />
                     </div>
 
@@ -763,9 +746,8 @@ export default function SettingsPage() {
                         <p className="text-sm text-slate-600">Enable trip and itinerary planning tools</p>
                       </div>
                       <Switch
-                        checked={configuration.floorplan_enabled}
-                        onCheckedChange={(checked) => setConfiguration((prev) => ({ ...prev, floorplan_enabled: checked }))}
-                        disabled={configTableMissing}
+                        checked={configuration.trip_plan_enabled}
+                        onCheckedChange={(checked) => setConfiguration((prev) => ({ ...prev, trip_plan_enabled: checked }))}
                       />
                     </div>
                   </div>
@@ -775,7 +757,7 @@ export default function SettingsPage() {
               <Separator />
 
               <div className="flex justify-end">
-                <Button onClick={handleConfigurationSave} disabled={saving || configTableMissing}>
+                <Button onClick={handleConfigurationSave} disabled={saving}>
                   {saving ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
